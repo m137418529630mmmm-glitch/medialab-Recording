@@ -223,7 +223,7 @@ fn start_audio_capture(is_system_loopback: bool, wav_path: PathBuf) -> Option<Au
             if let Some(w) = guard.take() {
                 let _ = w.finalize();
             }
-        }
+        };
     });
 
     if ready_rx.recv_timeout(Duration::from_secs(2)).unwrap_or(false) {
