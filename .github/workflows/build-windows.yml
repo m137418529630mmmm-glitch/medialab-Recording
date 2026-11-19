@@ -50,11 +50,15 @@ jobs:
         run: npm run typecheck
 
       - name: Prepare updater config if signing key is missing
+        id: updater_check
         shell: pwsh
         env:
           HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         run: |
-          if ($env:HAS_SIGNING_KEY -ne 'true') {
+          if ($env:HAS_SIGNING_KEY -eq 'true') {
+            "has_key=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            "has_key=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             Write-Host "::notice::TAURI_SIGNING_PRIVATE_KEY not set yet - building unsigned NSIS setup. Add the secret to enable signed auto-updates."
             $confPath = "src-tauri/tauri.conf.json"
             $json = Get-Content $confPath -Raw | ConvertFrom-Json
@@ -63,11 +67,11 @@ jobs:
           }
 
       - name: Build Tauri v2 Windows Installer (Unsigned Preview)
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY == '' }}
+        if: steps.updater_check.outputs.has_key == 'false'
         run: npm run dist
 
       - name: Build & Publish Signed Release (With Auto-Updater)
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        if: steps.updater_check.outputs.has_key == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
