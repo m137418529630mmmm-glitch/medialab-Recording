@@ -1,6 +1,6 @@
 [package]
 name = "medialab-recording"
-version = "1.1.0"
+version = "1.1.1"
 description = "medialab recording - Lightweight Windows screen recorder"
 authors = ["medialab"]
 edition = "2021"
@@ -21,6 +21,8 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
+cpal = "0.15"
+hound = "3.5"
 
 [profile.release]
 panic = "abort"

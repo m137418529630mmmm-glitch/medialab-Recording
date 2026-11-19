@@ -27,7 +27,7 @@ import { localDateStamp } from './utils/format';
 import { desktopApi, isDesktopApp, UpdateCheckResult } from './utils/desktopApi';
 import { CircleDot, CheckCircle2, Download } from 'lucide-react';
 
-const SETTINGS_STORAGE_KEY = 'medialab_recorder_settings_v3';
+const SETTINGS_STORAGE_KEY = 'medialab_recorder_settings_v4';
 
 export default function App() {
   const loadSavedSettings = () => {
@@ -57,8 +57,7 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Auto-updater state
-  const [appVersion, setAppVersion] = useState<string>('1.1.0');
+  const [appVersion, setAppVersion] = useState<string>('1.1.1');
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
@@ -73,10 +72,10 @@ export default function App() {
   );
   const [region, setRegion] = useState<RegionCoordinates>(
     initialConfig?.region || {
-      x: 320,
-      y: 180,
-      width: 1920,
-      height: 1080,
+      x: 0,
+      y: 0,
+      width: 1280,
+      height: 720,
     }
   );
   const [selectedWindowId, setSelectedWindowId] = useState<string>(
@@ -98,7 +97,7 @@ export default function App() {
     const defaults: ToggleSettings = {
       hideCursor: true,
       highlightClicks: false,
-      systemAudio: false,
+      systemAudio: true,
       micAudio: false,
       countdown3s: false,
       countdownDuration: 3,
@@ -110,8 +109,6 @@ export default function App() {
     return {
       ...defaults,
       ...(initialConfig?.toggles || {}),
-      systemAudio: false,
-      micAudio: false,
     };
   });
 
@@ -204,7 +201,6 @@ export default function App() {
     if (!isDesktop) return;
 
     void desktopApi.getAppVersion().then(setAppVersion).catch(() => {});
-    // Silent background update check on launch
     void handleCheckUpdates(true);
 
     desktopApi
@@ -274,7 +270,7 @@ export default function App() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
-    }, 3000);
+    }, 4500);
   };
 
   const startNativeRecording = async () => {
@@ -288,6 +284,8 @@ export default function App() {
         fps,
         sharpness,
         hideCursor: toggles.hideCursor,
+        systemAudio: toggles.systemAudio,
+        micAudio: toggles.micAudio,
         format: storage.format,
         savePath: storage.savePath,
         currentIndex: storage.currentIndex,
@@ -466,7 +464,6 @@ export default function App() {
         onPauseResumeRecording={handlePauseResume}
       />
 
-      {/* Available Update Banner */}
       {updateInfo?.available && (
         <div className="max-w-xl w-full mx-auto px-5 pt-3">
           <div className="bg-[#FFF4F0] border border-[#D85631]/40 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs">
@@ -547,9 +544,9 @@ export default function App() {
       </main>
 
       {toastMessage && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#1E1D1B] text-white px-5 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-bold animate-in slide-in-from-bottom-3 duration-150">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#1E1D1B] text-white px-5 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-bold animate-in slide-in-from-bottom-3 duration-150 max-w-[90vw]">
           <CheckCircle2 className="w-4 h-4 text-[#D85631] shrink-0" />
-          <span>{toastMessage}</span>
+          <span className="break-words">{toastMessage}</span>
         </div>
       )}
 

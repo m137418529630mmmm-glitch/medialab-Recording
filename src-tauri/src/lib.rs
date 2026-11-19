@@ -2,7 +2,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -57,6 +57,10 @@ pub struct RecordOptions {
     pub fps: u32,
     pub sharpness: String,
     pub hide_cursor: bool,
+    #[serde(default)]
+    pub system_audio: bool,
+    #[serde(default)]
+    pub mic_audio: bool,
     pub format: String,
     pub save_path: Option<String>,
     pub current_index: Option<u32>,
@@ -102,12 +106,160 @@ pub struct OverlayStatePayload {
     pub lang: String,
 }
 
+struct AudioCaptureHandle {
+    stop_tx: mpsc::Sender<()>,
+    join_handle: std::thread::JoinHandle<()>,
+    wav_path: PathBuf,
+}
+
+fn start_audio_capture(is_system_loopback: bool, wav_path: PathBuf) -> Option<AudioCaptureHandle> {
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let (ready_tx, ready_rx) = mpsc::channel::<bool>();
+    let path_clone = wav_path.clone();
+
+    let join_handle = std::thread::spawn(move || {
+        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+        let host = cpal::default_host();
+        let (device, config) = if is_system_loopback {
+            let Some(dev) = host.default_output_device() else {
+                let _ = ready_tx.send(false);
+                return;
+            };
+            let Ok(cfg) = dev.default_output_config() else {
+                let _ = ready_tx.send(false);
+                return;
+            };
+            (dev, cfg)
+        } else {
+            let Some(dev) = host.default_input_device() else {
+                let _ = ready_tx.send(false);
+                return;
+            };
+            let Ok(cfg) = dev.default_input_config() else {
+                let _ = ready_tx.send(false);
+                return;
+            };
+            (dev, cfg)
+        };
+
+        let spec = hound::WavSpec {
+            channels: config.channels(),
+            sample_rate: config.sample_rate().0,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let Ok(wav_writer) = hound::WavWriter::create(&path_clone, spec) else {
+            let _ = ready_tx.send(false);
+            return;
+        };
+        let writer = Arc::new(Mutex::new(Some(wav_writer)));
+        let sample_format = config.sample_format();
+        let stream_config: cpal::StreamConfig = config.into();
+        let w_cb = writer.clone();
+
+        let stream_res = match sample_format {
+            cpal::SampleFormat::F32 => device.build_input_stream(
+                &stream_config,
+                move |data: &[f32], _| {
+                    if let Ok(mut guard) = w_cb.lock() {
+                        if let Some(ref mut w) = *guard {
+                            for &s in data {
+                                let clamped = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                                let _ = w.write_sample(clamped);
+                            }
+                        }
+                    }
+                },
+                |_| {},
+                None,
+            ),
+            cpal::SampleFormat::I16 => device.build_input_stream(
+                &stream_config,
+                move |data: &[i16], _| {
+                    if let Ok(mut guard) = w_cb.lock() {
+                        if let Some(ref mut w) = *guard {
+                            for &s in data {
+                                let _ = w.write_sample(s);
+                            }
+                        }
+                    }
+                },
+                |_| {},
+                None,
+            ),
+            cpal::SampleFormat::U16 => device.build_input_stream(
+                &stream_config,
+                move |data: &[u16], _| {
+                    if let Ok(mut guard) = w_cb.lock() {
+                        if let Some(ref mut w) = *guard {
+                            for &s in data {
+                                let centered = (s as i32 - 32768) as i16;
+                                let _ = w.write_sample(centered);
+                            }
+                        }
+                    }
+                },
+                |_| {},
+                None,
+            ),
+            _ => {
+                let _ = ready_tx.send(false);
+                return;
+            }
+        };
+
+        let Ok(stream) = stream_res else {
+            let _ = ready_tx.send(false);
+            return;
+        };
+        if stream.play().is_err() {
+            let _ = ready_tx.send(false);
+            return;
+        }
+        let _ = ready_tx.send(true);
+        let _ = stop_rx.recv();
+        drop(stream);
+        if let Ok(mut guard) = writer.lock() {
+            if let Some(w) = guard.take() {
+                let _ = w.finalize();
+            }
+        }
+    });
+
+    if ready_rx.recv_timeout(Duration::from_secs(2)).unwrap_or(false) {
+        Some(AudioCaptureHandle {
+            stop_tx,
+            join_handle,
+            wav_path,
+        })
+    } else {
+        let _ = stop_tx.send(());
+        let _ = join_handle.join();
+        None
+    }
+}
+
+fn stop_audio_handle(handle: Option<AudioCaptureHandle>) -> Option<PathBuf> {
+    let h = handle?;
+    let _ = h.stop_tx.send(());
+    let _ = h.join_handle.join();
+    if fs::metadata(&h.wav_path).map(|m| m.len() > 128).unwrap_or(false) {
+        Some(h.wav_path)
+    } else {
+        None
+    }
+}
+
 struct RecorderInner {
     active: bool,
     paused: bool,
     stopping: bool,
     ffmpeg: Option<Child>,
+    sys_audio_handle: Option<AudioCaptureHandle>,
+    mic_audio_handle: Option<AudioCaptureHandle>,
     segments: Vec<PathBuf>,
+    sys_audio_segments: Vec<PathBuf>,
+    mic_audio_segments: Vec<PathBuf>,
     segment_index: usize,
     options: Option<RecordOptions>,
     started_at: Option<Instant>,
@@ -132,7 +284,11 @@ impl AppState {
                 paused: false,
                 stopping: false,
                 ffmpeg: None,
+                sys_audio_handle: None,
+                mic_audio_handle: None,
                 segments: Vec::new(),
+                sys_audio_segments: Vec::new(),
+                mic_audio_segments: Vec::new(),
                 segment_index: 0,
                 options: None,
                 started_at: None,
@@ -563,7 +719,7 @@ fn start_segment_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) ->
 
         args.extend([
             "-vf".into(), build_video_filter(&opts.resolution),
-            "-vsync".into(), "cfr".into(),
+            "-fps_mode".into(), "cfr".into(),
             "-r".into(), fps.to_string(),
         ]);
         args.extend(build_encoder_args(active_codec, &opts, app));
@@ -582,9 +738,21 @@ fn start_segment_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) ->
             .spawn()
             .map_err(|e| format!("Failed to start FFmpeg: {}", e))?;
 
-        std::thread::sleep(Duration::from_millis(160));
-        if let Ok(Some(status)) = child.try_wait() {
-            return Err(format!("FFmpeg exited immediately ({}) with {}", status, active_codec));
+        for _ in 0..6 {
+            std::thread::sleep(Duration::from_millis(50));
+            if let Ok(Some(status)) = child.try_wait() {
+                let mut err_msg = String::new();
+                if let Some(mut stderr) = child.stderr.take() {
+                    let _ = stderr.read_to_string(&mut err_msg);
+                }
+                let trimmed = err_msg.trim();
+                let short_err = if trimmed.len() > 260 {
+                    &trimmed[trimmed.len() - 260..]
+                } else {
+                    trimmed
+                };
+                return Err(format!("FFmpeg failed ({}) [{}]: {}", status, active_codec, short_err));
+            }
         }
         Ok(child)
     };
@@ -604,14 +772,39 @@ fn start_segment_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) ->
         }
     };
 
+    // Start native Windows WASAPI system audio / microphone capture alongside FFmpeg
+    let sys_handle = if opts.system_audio {
+        let wav = temp_root.join(format!("segment-{}-sys.wav", seg_idx));
+        let h = start_audio_capture(true, wav);
+        if h.is_none() {
+            log_line(app, "System audio capture could not be opened; continuing without system audio.");
+        }
+        h
+    } else {
+        None
+    };
+
+    let mic_handle = if opts.mic_audio {
+        let wav = temp_root.join(format!("segment-{}-mic.wav", seg_idx));
+        let h = start_audio_capture(false, wav);
+        if h.is_none() {
+            log_line(app, "Microphone capture could not be opened; continuing without microphone.");
+        }
+        h
+    } else {
+        None
+    };
+
     let mut guard = state.lock().map_err(|_| "State lock poisoned".to_string())?;
     guard.ffmpeg = Some(child);
+    guard.sys_audio_handle = sys_handle;
+    guard.mic_audio_handle = mic_handle;
     guard.segments.push(seg_path);
     Ok(())
 }
 
 fn pause_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result<(), String> {
-    let child_opt = {
+    let (child_opt, sys_h, mic_h) = {
         let mut guard = state.lock().map_err(|_| "State lock poisoned".to_string())?;
         if !guard.active || guard.paused || guard.stopping {
             return Ok(());
@@ -620,14 +813,23 @@ fn pause_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result<
             guard.elapsed_ms += started.elapsed().as_millis() as u64;
         }
         guard.paused = true;
-        guard.ffmpeg.take()
+        (guard.ffmpeg.take(), guard.sys_audio_handle.take(), guard.mic_audio_handle.take())
     };
 
     if let Some(child) = child_opt {
         stop_child_gracefully(child);
     }
+    let sys_wav = stop_audio_handle(sys_h);
+    let mic_wav = stop_audio_handle(mic_h);
 
-    let elapsed_ms = state.lock().map(|g| g.elapsed_ms).unwrap_or(0);
+    let elapsed_ms = if let Ok(mut guard) = state.lock() {
+        if let Some(p) = sys_wav { guard.sys_audio_segments.push(p); }
+        if let Some(p) = mic_wav { guard.mic_audio_segments.push(p); }
+        guard.elapsed_ms
+    } else {
+        0
+    };
+
     let _ = app.emit("recording-status-change", json!({ "status": "paused" }));
     let _ = app.emit("hud-status", json!({ "paused": true, "elapsedMs": elapsed_ms }));
     Ok(())
@@ -661,7 +863,7 @@ fn resume_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result
 }
 
 fn cancel_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result<(), String> {
-    let (child_opt, temp_root) = {
+    let (child_opt, sys_h, mic_h, temp_root) = {
         let mut guard = state.lock().map_err(|_| "State lock poisoned".to_string())?;
         if !guard.active || guard.stopping {
             return Ok(());
@@ -670,16 +872,25 @@ fn cancel_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result
         guard.active = false;
         guard.paused = false;
         guard.segments.clear();
+        guard.sys_audio_segments.clear();
+        guard.mic_audio_segments.clear();
         guard.segment_index = 0;
         guard.elapsed_ms = 0;
         guard.started_at = None;
-        (guard.ffmpeg.take(), guard.temp_root.clone())
+        (
+            guard.ffmpeg.take(),
+            guard.sys_audio_handle.take(),
+            guard.mic_audio_handle.take(),
+            guard.temp_root.clone(),
+        )
     };
 
     close_window(app, "hud");
     if let Some(child) = child_opt {
         kill_child_now(child);
     }
+    let _ = stop_audio_handle(sys_h);
+    let _ = stop_audio_handle(mic_h);
     let _ = fs::remove_dir_all(&temp_root);
 
     if let Ok(mut guard) = state.lock() {
@@ -696,8 +907,19 @@ fn cancel_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result
     Ok(())
 }
 
+fn write_concat_file(list_path: &Path, items: &[PathBuf]) -> Result<(), String> {
+    let list_content: Vec<String> = items
+        .iter()
+        .map(|p| {
+            let escaped = p.to_string_lossy().replace('\\', "/").replace('\'', "'\\''");
+            format!("file '{}'", escaped)
+        })
+        .collect();
+    fs::write(list_path, list_content.join("\n")).map_err(|e| e.to_string())
+}
+
 fn stop_save_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result<Option<SaveResult>, String> {
-    let (child_opt, opts, segments, temp_root, elapsed_ms) = {
+    let (child_opt, sys_h, mic_h, opts, segments, mut sys_segs, mut mic_segs, temp_root, elapsed_ms) = {
         let mut guard = state.lock().map_err(|_| "State lock poisoned".to_string())?;
         if !guard.active || guard.stopping {
             return Ok(None);
@@ -709,19 +931,25 @@ fn stop_save_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Res
             }
         }
         let c = guard.ffmpeg.take();
+        let sh = guard.sys_audio_handle.take();
+        let mh = guard.mic_audio_handle.take();
         let o = guard.options.clone();
         let s = guard.segments.clone();
+        let ss = guard.sys_audio_segments.clone();
+        let ms = guard.mic_audio_segments.clone();
         let t = guard.temp_root.clone();
         let e = guard.elapsed_ms;
         guard.active = false;
         guard.paused = false;
-        (c, o, s, t, e)
+        (c, sh, mh, o, s, ss, ms, t, e)
     };
 
     close_window(app, "hud");
     if let Some(child) = child_opt {
         stop_child_gracefully(child);
     }
+    if let Some(p) = stop_audio_handle(sys_h) { sys_segs.push(p); }
+    if let Some(p) = stop_audio_handle(mic_h) { mic_segs.push(p); }
 
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.unminimize();
@@ -738,6 +966,15 @@ fn stop_save_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Res
         if valid.is_empty() {
             return Err("No valid video segment was created. Check FFmpeg and capture permissions.".into());
         }
+
+        let valid_sys: Vec<PathBuf> = sys_segs
+            .into_iter()
+            .filter(|p| fs::metadata(p).map(|m| m.len() > 128).unwrap_or(false))
+            .collect();
+        let valid_mic: Vec<PathBuf> = mic_segs
+            .into_iter()
+            .filter(|p| fs::metadata(p).map(|m| m.len() > 128).unwrap_or(false))
+            .collect();
 
         let default_vid = app.path().video_dir().unwrap_or_else(|_| std::env::temp_dir());
         let folder = opts
@@ -756,28 +993,69 @@ fn stop_save_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Res
         let (output, next_index) = choose_output_path(&folder, ext, &opts);
         let exe = resolve_ffmpeg(app);
 
-        if valid.len() == 1 && ext == "mkv" {
+        let has_sys = !valid_sys.is_empty();
+        let has_mic = !valid_mic.is_empty();
+
+        if valid.len() == 1 && ext == "mkv" && !has_sys && !has_mic {
             fs::copy(&valid[0], &output).map_err(|e| e.to_string())?;
         } else {
-            let list_path = temp_root.join("concat.txt");
-            let list_content: Vec<String> = valid
-                .iter()
-                .map(|p| {
-                    let escaped = p.to_string_lossy().replace('\\', "/").replace('\'', "'\\''");
-                    format!("file '{}'", escaped)
-                })
-                .collect();
-            fs::write(&list_path, list_content.join("\n")).map_err(|e| e.to_string())?;
+            let v_list = temp_root.join("concat-v.txt");
+            write_concat_file(&v_list, &valid)?;
 
             let mut args: Vec<String> = vec![
                 "-hide_banner".into(),
                 "-loglevel".into(), "warning".into(),
                 "-f".into(), "concat".into(),
                 "-safe".into(), "0".into(),
-                "-i".into(), list_path.to_string_lossy().to_string(),
-                "-map".into(), "0:v:0".into(),
-                "-c:v".into(), "copy".into(),
+                "-i".into(), v_list.to_string_lossy().to_string(),
             ];
+
+            let mut audio_inputs = 0usize;
+            if has_sys {
+                let s_list = temp_root.join("concat-sys.txt");
+                write_concat_file(&s_list, &valid_sys)?;
+                args.extend([
+                    "-f".into(), "concat".into(),
+                    "-safe".into(), "0".into(),
+                    "-i".into(), s_list.to_string_lossy().to_string(),
+                ]);
+                audio_inputs += 1;
+            }
+            if has_mic {
+                let m_list = temp_root.join("concat-mic.txt");
+                write_concat_file(&m_list, &valid_mic)?;
+                args.extend([
+                    "-f".into(), "concat".into(),
+                    "-safe".into(), "0".into(),
+                    "-i".into(), m_list.to_string_lossy().to_string(),
+                ]);
+                audio_inputs += 1;
+            }
+
+            if audio_inputs == 0 {
+                args.extend(["-map".into(), "0:v:0".into(), "-c:v".into(), "copy".into()]);
+            } else if audio_inputs == 1 {
+                args.extend([
+                    "-map".into(), "0:v:0".into(),
+                    "-map".into(), "1:a:0".into(),
+                    "-c:v".into(), "copy".into(),
+                    "-c:a".into(), "aac".into(),
+                    "-b:a".into(), "192k".into(),
+                    "-shortest".into(),
+                ]);
+            } else {
+                args.extend([
+                    "-filter_complex".into(),
+                    "[1:a][2:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]".into(),
+                    "-map".into(), "0:v:0".into(),
+                    "-map".into(), "[aout]".into(),
+                    "-c:v".into(), "copy".into(),
+                    "-c:a".into(), "aac".into(),
+                    "-b:a".into(), "192k".into(),
+                    "-shortest".into(),
+                ]);
+            }
+
             if ext != "mkv" {
                 args.extend(["-movflags".into(), "+faststart".into()]);
             }
@@ -1207,6 +1485,8 @@ async fn start_record(
             }
             guard.options = Some(options);
             guard.segments.clear();
+            guard.sys_audio_segments.clear();
+            guard.mic_audio_segments.clear();
             guard.segment_index = 0;
             guard.elapsed_ms = 0;
             guard.started_at = Some(Instant::now());
@@ -1221,6 +1501,11 @@ async fn start_record(
                 if let Some(child) = guard.ffmpeg.take() {
                     kill_child_now(child);
                 }
+                let sh = guard.sys_audio_handle.take();
+                let mh = guard.mic_audio_handle.take();
+                drop(guard);
+                let _ = stop_audio_handle(sh);
+                let _ = stop_audio_handle(mh);
             }
             close_window(&app_clone, "hud");
             return Err(e);
@@ -1368,7 +1653,6 @@ pub fn run() {
             let _ = app.global_shortcut().register(r_shortcut);
             let _ = app.global_shortcut().register(p_shortcut);
 
-            // Warm up hardware encoder probe in the background for instant start
             let app_handle = app.handle().clone();
             let inner = app.state::<AppState>().inner.clone();
             std::thread::spawn(move || {
