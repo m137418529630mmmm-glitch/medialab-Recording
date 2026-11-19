@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Recording controls</title>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent;
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #fff; }
+  #hud { height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; white-space: nowrap;
+    background: #191919; border: 1px solid rgba(255,255,255,.2); border-radius: 14px; cursor: grab; }
+  #hud:active { cursor: grabbing; }
+  html[dir="rtl"] #hud { padding: 0 14px 0 10px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; flex: none; animation: blink 1.2s infinite; pointer-events: none; }
+  .paused .dot { background: #f59e0b; animation: none; }
+  @keyframes blink { 50% { opacity: .35; } }
+  #timer { font: 700 14px Consolas, "Courier New", monospace; min-width: 68px; direction: ltr; pointer-events: none; }
+  button { cursor: pointer; border: 0; border-radius: 9px; padding: 8px 11px; color: #fff;
+    font: 700 12px "Segoe UI", Tahoma, Arial, sans-serif; background: #333; transition: background .12s; }
+  button:hover { background: #444; }
+  button:disabled { opacity: .5; cursor: default; }
+  #stop { background: #D85631; }
+  #stop:hover { background: #e8663f; }
+  #cancel { background: #4b2222; color: #fecaca; }
+  #cancel:hover { background: #7f1d1d; color: #fff; }
+  .compact #pause, .compact #stop, .compact #cancel { display: none; }
+  .spacer { flex: 1; pointer-events: none; }
+</style>
+</head>
+<body>
+  <div id="hud" data-tauri-drag-region>
+    <span class="dot"></span>
+    <span id="timer">00:00:00</span>
+    <button id="pause" type="button">Pause</button>
+    <button id="stop" type="button">Stop &amp; Save</button>
+    <button id="cancel" type="button">Cancel</button>
+    <span class="spacer"></span>
+    <button id="toggle" type="button">Hide</button>
+  </div>
+<script>
+const invoke = window.__TAURI__.core.invoke;
+const listen = window.__TAURI__.event.listen;
+const hud = document.getElementById('hud');
+const timer = document.getElementById('timer');
+const pauseBtn = document.getElementById('pause');
+const stopBtn = document.getElementById('stop');
+const cancelBtn = document.getElementById('cancel');
+const toggleBtn = document.getElementById('toggle');
+
+const labels = {
+  en: { pause: 'Pause', resume: 'Resume', stop: 'Stop & Save', cancel: 'Cancel', hide: 'Hide', show: 'Show' },
+  ar: { pause: 'إيقاف مؤقت', resume: 'استئناف', stop: 'حفظ وإنهاء', cancel: 'إلغاء', hide: 'إخفاء', show: 'إظهار' }
+};
+
+let lang = 'en';
+let paused = false, elapsedMs = 0, started = Date.now(), compact = false;
+
+const pad = n => String(n).padStart(2, '0');
+function render() {
+  const total = Math.floor((elapsedMs + (paused ? 0 : Date.now() - started)) / 1000);
+  timer.textContent = pad(Math.floor(total / 3600)) + ':' + pad(Math.floor(total % 3600 / 60)) + ':' + pad(total % 60);
+}
+function apply() {
+  const t = labels[lang] || labels.en;
+  document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+  hud.classList.toggle('paused', paused);
+  pauseBtn.textContent = paused ? t.resume : t.pause;
+  stopBtn.textContent = t.stop;
+  cancelBtn.textContent = t.cancel;
+  toggleBtn.textContent = compact ? t.show : t.hide;
+  render();
+}
+
+invoke('get_hud_state').then((d) => {
+  if (!d) return;
+  lang = d.lang === 'ar' ? 'ar' : 'en';
+  paused = !!d.paused;
+  elapsedMs = d.elapsedMs || 0;
+  started = Date.now();
+  apply();
+}).catch(() => {});
+
+listen('hud-status', (event) => {
+  const d = event.payload || {};
+  paused = !!d.paused;
+  elapsedMs = d.elapsedMs != null ? d.elapsedMs : elapsedMs;
+  started = Date.now();
+  pauseBtn.disabled = false;
+  apply();
+});
+
+pauseBtn.addEventListener('click', () => {
+  pauseBtn.disabled = true;
+  invoke('hud_toggle_pause');
+});
+stopBtn.addEventListener('click', () => {
+  stopBtn.disabled = true;
+  pauseBtn.disabled = true;
+  cancelBtn.disabled = true;
+  invoke('hud_stop_save');
+});
+cancelBtn.addEventListener('click', () => {
+  stopBtn.disabled = true;
+  pauseBtn.disabled = true;
+  cancelBtn.disabled = true;
+  invoke('hud_cancel');
+});
+toggleBtn.addEventListener('click', () => {
+  compact = !compact;
+  hud.classList.toggle('compact', compact);
+  const t = labels[lang] || labels.en;
+  toggleBtn.textContent = compact ? t.show : t.hide;
+  invoke('set_hud_compact', { compact });
+});
+setInterval(render, 250);
+</script>
+</body>
+</html>

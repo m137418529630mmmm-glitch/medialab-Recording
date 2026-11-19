@@ -1,0 +1,37 @@
+{
+  "name": "medialab-recording",
+  "version": "1.1.0",
+  "description": "medialab recording - Ultra-lightweight Windows screen recorder (Tauri v2 + React + FFmpeg)",
+  "author": "medialab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "dist": "tauri build"
+  },
+  "dependencies": {
+    "@fontsource/cairo": "^5.0.0",
+    "@fontsource/jetbrains-mono": "^5.0.0",
+    "@fontsource/tajawal": "^5.0.0",
+    "@tauri-apps/api": "^2.2.0",
+    "@tauri-apps/plugin-process": "^2.2.0",
+    "@tauri-apps/plugin-updater": "^2.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@tauri-apps/cli": "^2.2.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.2.0"
+  }
+}
