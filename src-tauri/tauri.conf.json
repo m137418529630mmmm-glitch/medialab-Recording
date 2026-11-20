@@ -51,7 +51,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "__TAURI_UPDATER_PUBLIC_KEY_REQUIRED__",
+      "pubkey": "untrusted comment: minisign public key: AA23824D63FF93FF\nRWT/k/9jTYIjqmSuvzYw7gtHaaZv3GrlLvJB+yACjOOJZ1MBUzCrvLMM",
       "endpoints": [
         "https://github.com/m137418529630mmmm-glitch/medialab-Recording/releases/latest/download/latest.json"
       ]
