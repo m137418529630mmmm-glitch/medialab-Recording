@@ -1,4 +1,4 @@
-name: Build medialab recording (Tauri v2 - No Auto Updater)
+name: Build medialab recording (Tauri v2 + Auto-Updater)
 
 on:
   workflow_dispatch:
@@ -28,16 +28,14 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Read app version
-        id: meta
+      - name: Verify signing key secret
         shell: pwsh
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $cargo = Get-Content src-tauri/Cargo.toml -Raw
-          if ($pkg.version -ne $tauri.version) { throw "Version mismatch: package.json=$($pkg.version), tauri.conf.json=$($tauri.version)" }
-          if ($cargo -notmatch ('version\s*=\s*"' + [regex]::Escape($pkg.version) + '"')) { throw "Cargo.toml version does not match package.json" }
-          "version=$($pkg.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEY)) {
+            throw "Missing TAURI_SIGNING_PRIVATE_KEY in GitHub Repository Secrets (Settings -> Secrets and variables -> Actions)."
+          }
 
       - name: Download FFmpeg Essentials (ffmpeg.exe only)
         shell: pwsh
@@ -60,13 +58,15 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Build & Publish Windows Installer (No Auto-Updater)
+      - name: Build & Publish Signed Release (With Auto-Updater)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v${{ steps.meta.outputs.version }}
-          releaseName: 'medialab recording v${{ steps.meta.outputs.version }}'
-          releaseBody: 'Windows installer for medialab recording (automatic updates removed).'
+          tagName: v__VERSION__
+          releaseName: 'medialab recording v__VERSION__'
+          releaseBody: 'medialab recording v__VERSION__ — Windows x64 installer with automatic in-app updates.'
           releaseDraft: false
           prerelease: false
