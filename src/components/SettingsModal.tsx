@@ -8,8 +8,6 @@ import {
   Timer,
   Keyboard,
   Clock,
-  RefreshCw,
-  Download,
 } from 'lucide-react';
 import {
   ToggleSettings,
@@ -18,7 +16,6 @@ import {
   VideoFormat,
 } from '../types/recorder';
 import { Language, translations } from '../utils/translations';
-import { UpdateCheckResult } from '../utils/desktopApi';
 
 interface SettingsModalProps {
   lang: Language;
@@ -33,13 +30,6 @@ interface SettingsModalProps {
   videoFormat: VideoFormat;
   setVideoFormat: (fmt: VideoFormat) => void;
   appVersion: string;
-  updateInfo: UpdateCheckResult | null;
-  isCheckingUpdate: boolean;
-  isInstallingUpdate: boolean;
-  updateProgress: number;
-  updateStatusMsg: string | null;
-  onCheckUpdates: () => void;
-  onInstallUpdate: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -53,13 +43,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   videoFormat,
   setVideoFormat,
   appVersion,
-  updateInfo,
-  isCheckingUpdate,
-  isInstallingUpdate,
-  updateProgress,
-  updateStatusMsg,
-  onCheckUpdates,
-  onInstallUpdate,
 }) => {
   if (!isOpen) return null;
   const t = translations[lang];
@@ -421,50 +404,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Ctrl+Shift+P
               </kbd>
             </div>
-          </div>
-        </div>
-
-        {/* Section 6: App Updates */}
-        <div className="space-y-2 pt-2 border-t border-[#E5E2DC]">
-          <div className="text-[11px] font-bold text-[#7E7B75] uppercase tracking-wider flex items-center gap-1.5">
-            <RefreshCw className="w-3.5 h-3.5 text-[#D85631]" />
-            <span>{t.updatesTitle}</span>
-          </div>
-          <div className="p-3 bg-[#F4F3F0] rounded-xl border border-[#E5E2DC] space-y-2.5">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <div>
-                <span className="font-bold text-[#1E1D1B]">{t.currentVersion}: </span>
-                <span className="font-mono font-bold text-[#D85631]" dir="ltr">v{appVersion}</span>
-              </div>
-              <button
-                type="button"
-                disabled={isCheckingUpdate || isInstallingUpdate}
-                onClick={onCheckUpdates}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#FAF9F7] disabled:opacity-60 text-[#1E1D1B] text-xs font-bold rounded-lg border border-[#E5E2DC] cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
-                <span>{isCheckingUpdate ? t.checkingUpdates : t.checkUpdates}</span>
-              </button>
-            </div>
-
-            {updateStatusMsg && (
-              <div className="text-[11px] font-bold text-[#7E7B75]">{updateStatusMsg}</div>
-            )}
-
-            {updateInfo?.available && (
-              <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#E5E2DC]">
-                <span className="text-xs font-bold text-[#D85631]" dir="ltr">v{updateInfo.version}</span>
-                <button
-                  type="button"
-                  disabled={isInstallingUpdate}
-                  onClick={onInstallUpdate}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#D85631] hover:bg-[#C24623] disabled:opacity-60 text-white text-xs font-bold rounded-lg cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>{isInstallingUpdate ? `${t.downloadingUpdate} ${updateProgress}%` : t.installUpdate}</span>
-                </button>
-              </div>
-            )}
           </div>
         </div>
 
