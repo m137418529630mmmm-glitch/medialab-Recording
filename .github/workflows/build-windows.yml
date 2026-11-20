@@ -1,4 +1,4 @@
-name: Build medialab recording (Tauri v2)
+name: Build medialab recording (Tauri v2 - No Auto Updater)
 
 on:
   workflow_dispatch:
@@ -60,28 +60,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Require updater signing secrets
-        shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
-            throw "Missing TAURI_SIGNING_PRIVATE_KEY. Configure Tauri updater signing before publishing an auto-update release."
-          }
-          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
-            Write-Host "::notice::No updater key password supplied. This is valid only if the private key was generated without a password."
-          }
-
-      - name: Build & Publish Signed Release (With Auto-Updater)
+      - name: Build & Publish Windows Installer (No Auto-Updater)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v${{ steps.meta.outputs.version }}
           releaseName: 'medialab recording v${{ steps.meta.outputs.version }}'
-          releaseBody: 'Windows installer and signed updater artifacts for medialab recording.'
+          releaseBody: 'Windows installer for medialab recording (automatic updates removed).'
           releaseDraft: false
           prerelease: false
