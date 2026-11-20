@@ -16,11 +16,11 @@ export interface UpdateCheckResult {
 
 export const desktopApi = {
   async getAppVersion(): Promise<string> {
-    if (!isDesktopApp()) return '1.1.1';
+    if (!isDesktopApp()) return '1.1.2';
     try {
       return await getVersion();
     } catch {
-      return '1.1.1';
+      return '1.1.2';
     }
   },
 

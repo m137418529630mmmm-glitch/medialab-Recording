@@ -57,7 +57,7 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const [appVersion, setAppVersion] = useState<string>('1.1.1');
+  const [appVersion, setAppVersion] = useState<string>('1.1.2');
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
@@ -65,7 +65,7 @@ export default function App() {
   const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
 
   const [captureMode, setCaptureMode] = useState<CaptureMode>(
-    initialConfig?.captureMode || 'region'
+    initialConfig?.captureMode || 'fullscreen'
   );
   const [aspectPreset, setAspectPreset] = useState<AspectRatioPreset>(
     initialConfig?.aspectPreset || '16:9'
@@ -221,7 +221,7 @@ export default function App() {
       if (event?.status === 'idle') {
         setRecordingStatus('idle');
         setRecordingSeconds(0);
-      } else if (event?.status === 'recording' || event?.status === 'paused') {
+      } else if (event?.status === 'recording' || event?.status === 'paused' || event?.status === 'saving') {
         setRecordingStatus(event.status);
       }
     });
@@ -249,7 +249,7 @@ export default function App() {
   const [isRegionPickerOpen, setIsRegionPickerOpen] = useState(false);
 
   const [recordingStatus, setRecordingStatus] = useState<
-    'idle' | 'countdown' | 'recording' | 'paused'
+    'idle' | 'countdown' | 'recording' | 'paused' | 'saving'
   >('idle');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [countdownValue, setCountdownValue] = useState(3);
@@ -378,6 +378,10 @@ export default function App() {
         return;
       }
 
+      // Freeze timer immediately while FFmpeg finalizes the video
+      if (recordIntervalRef.current) clearInterval(recordIntervalRef.current);
+      setRecordingStatus('saving');
+
       let nativeResult: any = null;
       if (isDesktop) {
         try {
@@ -389,6 +393,8 @@ export default function App() {
             return;
           }
         } catch (error) {
+          setRecordingStatus('idle');
+          setRecordingSeconds(0);
           showToast(typeof error === 'string' ? error : error instanceof Error ? error.message : 'Could not save recording');
           return;
         }
@@ -534,11 +540,14 @@ export default function App() {
         <div className="pt-2 w-full min-w-0">
           <button
             type="button"
+            disabled={recordingStatus === 'saving'}
             onClick={() => handleStartRecording()}
-            className="w-full py-3.5 px-6 bg-[#D85631] hover:bg-[#C24623] active:scale-[0.99] text-white text-base font-bold rounded-xl shadow-sm transition-all duration-150 flex items-center justify-center gap-2.5 cursor-pointer truncate"
+            className="w-full py-3.5 px-6 bg-[#D85631] hover:bg-[#C24623] disabled:opacity-60 active:scale-[0.99] text-white text-base font-bold rounded-xl shadow-sm transition-all duration-150 flex items-center justify-center gap-2.5 cursor-pointer truncate"
           >
             <CircleDot className="w-5 h-5 fill-current shrink-0" />
-            <span className="truncate">{t.startRecording}</span>
+            <span className="truncate">
+              {recordingStatus === 'saving' ? t.savingRecording : t.startRecording}
+            </span>
           </button>
         </div>
       </main>
@@ -586,7 +595,7 @@ export default function App() {
         }}
       />
 
-      {(!isDesktop || recordingStatus === 'countdown') && (
+      {(!isDesktop || recordingStatus === 'countdown') && recordingStatus !== 'saving' && (
         <LiveRecordingOverlay
           lang={lang}
           isActive={recordingStatus !== 'idle'}

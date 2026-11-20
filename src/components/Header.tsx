@@ -4,6 +4,7 @@ import {
   Pause,
   Play,
   X,
+  Loader2,
 } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
 import { MediaLabLogo } from './MediaLabLogo';
@@ -12,7 +13,7 @@ interface HeaderProps {
   lang: Language;
   setLang: (lang: Language) => void;
   onOpenSettings: () => void;
-  recordingStatus: 'idle' | 'countdown' | 'recording' | 'paused';
+  recordingStatus: 'idle' | 'countdown' | 'recording' | 'paused' | 'saving';
   recordingTimer: string;
   onStopRecording: () => void;
   onCancelRecording: () => void;
@@ -42,6 +43,13 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
+            {recordingStatus === 'saving' && (
+              <div className="flex items-center gap-1.5 bg-[#FFFFFF] border border-[#D85631] rounded-xl px-3 py-1 shadow-sm text-xs font-bold text-[#D85631]">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>{t.savingRecording}</span>
+              </div>
+            )}
+
             {isRecordingOrPaused && (
               <div className="flex items-center gap-1.5 bg-[#FFFFFF] border border-[#D85631] rounded-xl px-2.5 py-1 shadow-sm">
                 <span

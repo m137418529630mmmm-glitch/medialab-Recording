@@ -106,6 +106,74 @@ pub struct OverlayStatePayload {
     pub lang: String,
 }
 
+struct AudioWriterState {
+    writer: Option<hound::WavWriter<std::io::BufWriter<fs::File>>>,
+    samples_written: u64,
+    start_time: Instant,
+    sample_rate: u32,
+    channels: u16,
+}
+
+impl AudioWriterState {
+    fn pad_silence_if_needed(&mut self, incoming_samples: u64) {
+        let Some(ref mut w) = self.writer else {
+            return;
+        };
+        let elapsed_secs = self.start_time.elapsed().as_secs_f64();
+        let expected_frames = (elapsed_secs * self.sample_rate as f64).round() as u64;
+        let expected_total = expected_frames.saturating_mul(self.channels as u64);
+        let target_before = expected_total.saturating_sub(incoming_samples);
+        let tolerance = (self.sample_rate as u64 / 25).saturating_mul(self.channels as u64);
+        if target_before > self.samples_written.saturating_add(tolerance) {
+            let missing_frames = (target_before - self.samples_written) / (self.channels as u64);
+            let missing_samples = missing_frames.saturating_mul(self.channels as u64);
+            for _ in 0..missing_samples {
+                let _ = w.write_sample(0i16);
+            }
+            self.samples_written = self.samples_written.saturating_add(missing_samples);
+        }
+    }
+
+    fn write_f32(&mut self, data: &[f32]) {
+        self.pad_silence_if_needed(data.len() as u64);
+        if let Some(ref mut w) = self.writer {
+            for &s in data {
+                let clamped = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                let _ = w.write_sample(clamped);
+            }
+            self.samples_written = self.samples_written.saturating_add(data.len() as u64);
+        }
+    }
+
+    fn write_i16(&mut self, data: &[i16]) {
+        self.pad_silence_if_needed(data.len() as u64);
+        if let Some(ref mut w) = self.writer {
+            for &s in data {
+                let _ = w.write_sample(s);
+            }
+            self.samples_written = self.samples_written.saturating_add(data.len() as u64);
+        }
+    }
+
+    fn write_u16(&mut self, data: &[u16]) {
+        self.pad_silence_if_needed(data.len() as u64);
+        if let Some(ref mut w) = self.writer {
+            for &s in data {
+                let centered = (s as i32 - 32768) as i16;
+                let _ = w.write_sample(centered);
+            }
+            self.samples_written = self.samples_written.saturating_add(data.len() as u64);
+        }
+    }
+
+    fn finalize(&mut self) {
+        self.pad_silence_if_needed(0);
+        if let Some(w) = self.writer.take() {
+            let _ = w.finalize();
+        }
+    }
+}
+
 struct AudioCaptureHandle {
     stop_tx: mpsc::Sender<()>,
     join_handle: std::thread::JoinHandle<()>,
@@ -142,9 +210,11 @@ fn start_audio_capture(is_system_loopback: bool, wav_path: PathBuf) -> Option<Au
             (dev, cfg)
         };
 
+        let channels = config.channels();
+        let sample_rate = config.sample_rate().0;
         let spec = hound::WavSpec {
-            channels: config.channels(),
-            sample_rate: config.sample_rate().0,
+            channels,
+            sample_rate,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
@@ -152,22 +222,23 @@ fn start_audio_capture(is_system_loopback: bool, wav_path: PathBuf) -> Option<Au
             let _ = ready_tx.send(false);
             return;
         };
-        let writer = Arc::new(Mutex::new(Some(wav_writer)));
+        let writer_state = Arc::new(Mutex::new(AudioWriterState {
+            writer: Some(wav_writer),
+            samples_written: 0,
+            start_time: Instant::now(),
+            sample_rate,
+            channels,
+        }));
         let sample_format = config.sample_format();
         let stream_config: cpal::StreamConfig = config.into();
-        let w_cb = writer.clone();
+        let w_cb = writer_state.clone();
 
         let stream_res = match sample_format {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &stream_config,
                 move |data: &[f32], _| {
                     if let Ok(mut guard) = w_cb.lock() {
-                        if let Some(ref mut w) = *guard {
-                            for &s in data {
-                                let clamped = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-                                let _ = w.write_sample(clamped);
-                            }
-                        }
+                        guard.write_f32(data);
                     }
                 },
                 |_| {},
@@ -177,11 +248,7 @@ fn start_audio_capture(is_system_loopback: bool, wav_path: PathBuf) -> Option<Au
                 &stream_config,
                 move |data: &[i16], _| {
                     if let Ok(mut guard) = w_cb.lock() {
-                        if let Some(ref mut w) = *guard {
-                            for &s in data {
-                                let _ = w.write_sample(s);
-                            }
-                        }
+                        guard.write_i16(data);
                     }
                 },
                 |_| {},
@@ -191,12 +258,7 @@ fn start_audio_capture(is_system_loopback: bool, wav_path: PathBuf) -> Option<Au
                 &stream_config,
                 move |data: &[u16], _| {
                     if let Ok(mut guard) = w_cb.lock() {
-                        if let Some(ref mut w) = *guard {
-                            for &s in data {
-                                let centered = (s as i32 - 32768) as i16;
-                                let _ = w.write_sample(centered);
-                            }
-                        }
+                        guard.write_u16(data);
                     }
                 },
                 |_| {},
@@ -219,10 +281,8 @@ fn start_audio_capture(is_system_loopback: bool, wav_path: PathBuf) -> Option<Au
         let _ = ready_tx.send(true);
         let _ = stop_rx.recv();
         drop(stream);
-        if let Ok(mut guard) = writer.lock() {
-            if let Some(w) = guard.take() {
-                let _ = w.finalize();
-            }
+        if let Ok(mut guard) = writer_state.lock() {
+            guard.finalize();
         };
     });
 
@@ -772,7 +832,7 @@ fn start_segment_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) ->
         }
     };
 
-    // Start native Windows WASAPI system audio / microphone capture alongside FFmpeg
+    // Start wall-clock silence-padded native Windows WASAPI audio capture
     let sys_handle = if opts.system_audio {
         let wav = temp_root.join(format!("segment-{}-sys.wav", seg_idx));
         let h = start_audio_capture(true, wav);
@@ -885,6 +945,7 @@ fn cancel_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result
         )
     };
 
+    let _ = app.emit("recording-status-change", json!({ "status": "idle" }));
     close_window(app, "hud");
     if let Some(child) = child_opt {
         kill_child_now(child);
@@ -903,7 +964,6 @@ fn cancel_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Result
         let _ = main_win.set_focus();
     }
     let _ = app.emit("recording-cancelled", json!({}));
-    let _ = app.emit("recording-status-change", json!({ "status": "idle" }));
     Ok(())
 }
 
@@ -944,7 +1004,10 @@ fn stop_save_internal(app: &AppHandle, state: &Arc<Mutex<RecorderInner>>) -> Res
         (c, sh, mh, o, s, ss, ms, t, e)
     };
 
+    // Freeze main window timer immediately by switching UI to 'saving' before restoring main window.
+    let _ = app.emit("recording-status-change", json!({ "status": "saving" }));
     close_window(app, "hud");
+
     if let Some(child) = child_opt {
         stop_child_gracefully(child);
     }
@@ -1478,6 +1541,12 @@ async fn start_record(
             }
         }
 
+        // Minimize main window BEFORE starting capture so it never flashes in frame 0.
+        if let Some(main_win) = app_clone.get_webview_window("main") {
+            let _ = main_win.minimize();
+            std::thread::sleep(Duration::from_millis(220));
+        }
+
         {
             let mut guard = inner.lock().map_err(|_| "State lock poisoned".to_string())?;
             if guard.active {
@@ -1508,13 +1577,15 @@ async fn start_record(
                 let _ = stop_audio_handle(mh);
             }
             close_window(&app_clone, "hud");
+            if let Some(main_win) = app_clone.get_webview_window("main") {
+                let _ = main_win.unminimize();
+                let _ = main_win.show();
+                let _ = main_win.set_focus();
+            }
             return Err(e);
         }
 
         show_hud_window(&app_clone);
-        if let Some(main_win) = app_clone.get_webview_window("main") {
-            let _ = main_win.minimize();
-        }
         let _ = app_clone.emit("recording-status-change", json!({ "status": "recording" }));
         Ok(json!({ "ok": true }))
     })
