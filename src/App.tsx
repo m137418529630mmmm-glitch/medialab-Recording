@@ -24,8 +24,8 @@ import {
 } from './types/recorder';
 import { Language, translations } from './utils/translations';
 import { localDateStamp } from './utils/format';
-import { desktopApi, isDesktopApp, UpdateCheckResult } from './utils/desktopApi';
-import { CircleDot, CheckCircle2, Download } from 'lucide-react';
+import { desktopApi, isDesktopApp } from './utils/desktopApi';
+import { CircleDot, CheckCircle2 } from 'lucide-react';
 
 const SETTINGS_STORAGE_KEY = 'medialab_recorder_settings_v4';
 
@@ -57,12 +57,7 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const [appVersion, setAppVersion] = useState<string>('1.1.2');
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
-  const [updateProgress, setUpdateProgress] = useState<number>(0);
-  const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('1.1.3');
 
   const [captureMode, setCaptureMode] = useState<CaptureMode>(
     initialConfig?.captureMode || 'fullscreen'
@@ -166,42 +161,10 @@ export default function App() {
     storage,
   ]);
 
-  const handleCheckUpdates = async (silent = false) => {
-    if (!isDesktop || isCheckingUpdate) return;
-    setIsCheckingUpdate(true);
-    if (!silent) setUpdateStatusMsg(null);
-    try {
-      const result = await desktopApi.checkForUpdates();
-      setUpdateInfo(result);
-      if (!silent) {
-        setUpdateStatusMsg(result.available ? `${tRef.current.updateAvailable}: v${result.version}` : tRef.current.upToDate);
-      }
-    } catch {
-      if (!silent) setUpdateStatusMsg(tRef.current.updateError);
-    } finally {
-      setIsCheckingUpdate(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    if (!updateInfo?.updateObj || isInstallingUpdate) return;
-    setIsInstallingUpdate(true);
-    setUpdateProgress(0);
-    try {
-      await desktopApi.downloadAndInstallUpdate(updateInfo.updateObj, (pct) => {
-        setUpdateProgress(pct);
-      });
-    } catch {
-      setIsInstallingUpdate(false);
-      showToast(tRef.current.updateError);
-    }
-  };
-
   useEffect(() => {
     if (!isDesktop) return;
 
     void desktopApi.getAppVersion().then(setAppVersion).catch(() => {});
-    void handleCheckUpdates(true);
 
     desktopApi
       .getDefaultSaveInfo(initialConfig?.storage?.savePath, initialConfig?.storage?.prefix || '')
@@ -470,27 +433,6 @@ export default function App() {
         onPauseResumeRecording={handlePauseResume}
       />
 
-      {updateInfo?.available && (
-        <div className="max-w-xl w-full mx-auto px-5 pt-3">
-          <div className="bg-[#FFF4F0] border border-[#D85631]/40 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 font-bold text-[#1E1D1B]">
-              <Download className="w-4 h-4 text-[#D85631] shrink-0" />
-              <span>
-                {t.updateAvailable} <span className="font-mono text-[#D85631]" dir="ltr">v{updateInfo.version}</span>
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={isInstallingUpdate}
-              onClick={() => void handleInstallUpdate()}
-              className="px-3 py-1.5 bg-[#D85631] hover:bg-[#C24623] disabled:opacity-60 text-white font-bold rounded-lg cursor-pointer whitespace-nowrap"
-            >
-              {isInstallingUpdate ? `${t.downloadingUpdate} ${updateProgress}%` : t.installUpdate}
-            </button>
-          </div>
-        </div>
-      )}
-
       <main className="flex-1 w-full max-w-xl mx-auto px-5 py-5 space-y-4 box-border overflow-x-hidden">
         <CaptureModeSelector
           lang={lang}
@@ -572,13 +514,6 @@ export default function App() {
         videoFormat={videoFormat}
         setVideoFormat={setVideoFormat}
         appVersion={appVersion}
-        updateInfo={updateInfo}
-        isCheckingUpdate={isCheckingUpdate}
-        isInstallingUpdate={isInstallingUpdate}
-        updateProgress={updateProgress}
-        updateStatusMsg={updateStatusMsg}
-        onCheckUpdates={() => void handleCheckUpdates(false)}
-        onInstallUpdate={() => void handleInstallUpdate()}
       />
 
       <InteractiveRegionSelector
