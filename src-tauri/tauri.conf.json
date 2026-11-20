@@ -57,7 +57,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgMkU4OUIyNkVBNzNCN0I2NwpSV1JuZXp1bmJyS0pMb3RiRTVla2VDbWJaSnhMTDAwbEhVWk93MlZkZVpjSE5TN25mN3lTQkVCQgo=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgMzEzQTk5MDIwNzJEOTQyNgpSV1FtbEMwSEFwazZNY3V2RDB1QnB4U25UZ0pDZnUrNWNFU296Zm5nZmZCLzhQQlM1SDlDYXNMbQo=",
       "endpoints": [
         "https://github.com/m137418529630mmmm-glitch/medialab-Recording/releases/latest/download/latest.json"
       ]
