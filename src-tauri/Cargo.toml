@@ -1,6 +1,6 @@
 [package]
 name = "medialab-recording"
-version = "1.1.4"
+version = "1.1.5"
 description = "medialab recording - Lightweight Windows screen recorder"
 authors = ["medialab"]
 edition = "2021"

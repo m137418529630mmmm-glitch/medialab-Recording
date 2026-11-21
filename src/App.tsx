@@ -57,7 +57,7 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const [appVersion, setAppVersion] = useState<string>('1.1.4');
+  const [appVersion, setAppVersion] = useState<string>('1.1.5');
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
@@ -468,6 +468,7 @@ export default function App() {
         onStopRecording={() => handleStopAndSave()}
         onCancelRecording={() => handleCancelRecording()}
         onPauseResumeRecording={handlePauseResume}
+        appVersion={appVersion}
       />
 
       {updateInfo?.available && (

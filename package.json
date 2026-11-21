@@ -1,6 +1,6 @@
 {
   "name": "medialab-recording",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "medialab recording - Ultra-lightweight Windows screen recorder (Tauri v2 + React + FFmpeg)",
   "author": "medialab",
   "private": true,
