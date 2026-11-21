@@ -18,6 +18,7 @@ interface HeaderProps {
   onStopRecording: () => void;
   onCancelRecording: () => void;
   onPauseResumeRecording: () => void;
+  appVersion?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   onStopRecording,
   onCancelRecording,
   onPauseResumeRecording,
+  appVersion,
 }) => {
   const t = translations[lang];
 
@@ -38,8 +40,16 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="bg-[#F4F3F0] border-b border-[#E5E2DC] sticky top-0 z-40">
       <div className="max-w-xl mx-auto px-5 py-3">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center">
+          <div className="flex items-center gap-2">
             <MediaLabLogo className="h-10 sm:h-11 w-auto" />
+            {appVersion && (
+              <span
+                dir="ltr"
+                className="text-[10px] font-mono font-bold text-[#7E7B75] bg-white border border-[#E5E2DC] px-1.5 py-0.5 rounded-md"
+              >
+                v{appVersion}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5">

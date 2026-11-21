@@ -74,6 +74,10 @@ export const desktopApi = {
     );
   },
 
+  openSaveFolder(path: string) {
+    return invoke<void>('open_save_folder', { path });
+  },
+
   chooseFolder(prefix?: string) {
     return invoke<{ savePath: string; currentIndex: number } | null>(
       'choose_folder',

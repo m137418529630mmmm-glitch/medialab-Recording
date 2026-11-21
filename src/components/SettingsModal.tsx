@@ -469,7 +469,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="pt-2 border-t border-[#E5E2DC] flex justify-end">
+        <div className="pt-2 border-t border-[#E5E2DC] flex items-center justify-between gap-3">
+          <span className="text-[11px] font-mono font-bold text-[#7E7B75]" dir="ltr">
+            Design: MO.MAGDY
+          </span>
           <button
             type="button"
             onClick={onClose}

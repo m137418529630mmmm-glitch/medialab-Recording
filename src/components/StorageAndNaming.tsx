@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { StorageSettings } from '../types/recorder';
 import { Language, translations } from '../utils/translations';
-import { Hash, FolderOpen } from 'lucide-react';
+import { Hash, FolderOpen, ExternalLink } from 'lucide-react';
 import { localDateStamp } from '../utils/format';
 import { desktopApi, isDesktopApp } from '../utils/desktopApi';
 
@@ -40,6 +40,11 @@ export const StorageAndNaming: React.FC<StorageAndNamingProps> = ({
       return;
     }
     if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleOpenFolder = () => {
+    if (!isDesktopApp() || !storage.savePath.trim()) return;
+    void desktopApi.openSaveFolder(storage.savePath).catch(() => {});
   };
 
   const handleDirectoryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -122,10 +127,20 @@ export const StorageAndNaming: React.FC<StorageAndNamingProps> = ({
         <button
           type="button"
           onClick={handleBrowseClick}
-          className="px-4 sm:px-5 py-3 bg-[#FFFFFF] hover:bg-[#F9F8F6] text-[#1E1D1B] text-xs font-bold rounded-xl border border-[#E5E2DC] transition-colors cursor-pointer whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
+          className="px-3.5 sm:px-4 py-3 bg-[#FFFFFF] hover:bg-[#F9F8F6] text-[#1E1D1B] text-xs font-bold rounded-xl border border-[#E5E2DC] transition-colors cursor-pointer whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
         >
           <FolderOpen className="w-4 h-4 text-[#D85631]" />
           <span>{t.browse}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleOpenFolder}
+          title={t.openFolder}
+          className="px-3 py-3 bg-[#FFFFFF] hover:bg-[#F9F8F6] text-[#1E1D1B] text-xs font-bold rounded-xl border border-[#E5E2DC] transition-colors cursor-pointer whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
+        >
+          <ExternalLink className="w-4 h-4 text-[#7E7B75]" />
+          <span>{t.openFolder}</span>
         </button>
       </div>
     </div>

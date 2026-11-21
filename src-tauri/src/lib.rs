@@ -1202,6 +1202,26 @@ $bmp.Dispose()
 }
 
 #[tauri::command]
+fn open_save_folder(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Save path is empty.".into());
+    }
+    let target = Path::new(trimmed);
+    if !target.exists() {
+        fs::create_dir_all(target).map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer.exe")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn get_default_save_info(
     app: AppHandle,
     fallback_path: Option<String>,
@@ -1752,6 +1772,7 @@ pub fn run() {
             save_preferences,
             get_open_windows,
             choose_folder,
+            open_save_folder,
             select_region,
             get_overlay_state,
             submit_region_selection,
